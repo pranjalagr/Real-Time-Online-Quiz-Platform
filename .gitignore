@@ -1,0 +1,14 @@
+# ===== BACKEND =====
+quiz-backend/node_modules/
+quiz-backend/.env
+
+# ===== GENERAL =====
+node_modules/
+.env
+dist/
+build/
+coverage/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
