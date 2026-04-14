@@ -1,251 +1,307 @@
-import pool from '../db/index.js'
-import {registerquiztimer} from './quiztimers.js'
-import { call_llm } from './llminput.js';
-function generate(){
-    let length=8;
-    let stringgene = '';
-    for (let i = 0; i < length; i++) {
-        stringgene += String.fromCharCode(97 + Math.floor(Math.random() * 26));
+import roomValidator from '../validators/room.validator.js';
+import roomRepository from '../repositories/room.repositories.js';
+import quizRepository from '../repositories/quiz.repositories.js';
+import questionRepository from '../repositories/question.repositories.js';
+import submissionRepository from '../repositories/submission.repositories.js';
+import leaderboardRepository from '../repositories/leaderboard.repositories.js';
+import teamRepository from '../repositories/team.repositories.js';
+import codeGenerator from '../utils/codeGenerator.js';
+import quizTimerService from './quiztimer.service.js';
+import {
+    IncorrectStateError,
+    UserNotHostError,
+    UserNotInRoomError,
+    DuplicateUserInRoomError,
+    ValidationError
+} from '../models/errors.js';
+
+class RoomService {
+    async createRoom(hostId, roomMode) {
+        roomValidator.validateCreateRoomInput({ hostId, roomMode });
+
+        const roomCode = await codeGenerator.generateUniqueRoomCode();
+        const room = await roomRepository.createRoom({
+            host_id: hostId,
+            room_code: roomCode,
+            room_mode: roomMode
+        });
+
+        await roomRepository.addUserToRoom(room.id, hostId, 'host');
+
+        return {
+            roomId: room.id,
+            roomCode: room.room_code,
+            roomMode: room.room_mode,
+            state: room.state
+        };
     }
-    return stringgene;
-}
-async function createroom(hostUserId){
-    console.log("yaa");
-    const client=await pool.connect();
-    try{
-        await client.query('BEGIN')
-        let result='';
-        let rw,room_id;
-        for(let i=0;i<10;i++){
-            try{
-               result= generate();
-                rw=await client.query('INSERT INTO rooms (host_id,room_code,STATE) VALUES($1,$2,$3) RETURNING id',[hostUserId,result,'LOBBY']);
-                break;
+
+    async joinRoom(userId, roomCode, role = 'player', teamId = null) {
+        roomValidator.validateJoinRoomInput({ playerId: userId, roomCode });
+
+        const room = await roomRepository.getRoomByCode(roomCode);
+        if (room.state !== 'LOBBY') {
+            throw new IncorrectStateError(room.state, 'LOBBY', 'join room');
+        }
+
+        const isUserInRoom = await roomRepository.isUserInRoom(room.id, userId);
+        if (isUserInRoom) {
+            throw new DuplicateUserInRoomError(userId, room.id);
+        }
+
+        if (room.room_mode === 'TEAM') {
+            if (!teamId) {
+                throw new ValidationError('teamId is required for TEAM rooms');
             }
-            catch(err){
-                console.log(err);
-                if(err.code=='23505'){continue;}
-                else{throw new Error("Network Error");}
+
+            const teamExists = await teamRepository.teamExistsInRoom(room.id, teamId);
+            if (!teamExists) {
+                throw new ValidationError('Team does not exist in this room');
             }
         }
-        if(!rw){
-            throw new Error("Could not generate unique code");
+
+        await roomRepository.addUserToRoom(room.id, userId, role, teamId);
+
+        if (room.room_mode === 'SOLO') {
+            await leaderboardRepository.createEntry(userId, null, room.id, 0);
         }
-        room_id=rw.rows[0].id;
-        await client.query('INSERT INTO room_users (room_id,user_id,role) VALUES($1,$2,$3)',[room_id,hostUserId,'host']);
-        console.log(`room_id ${room_id} room_code ${result}`);
-        await client.query('COMMIT')
-        return {roomid:room_id,roomcode:result}
+
+        return {
+            roomId: room.id,
+            roomCode: room.room_code,
+            roomMode: room.room_mode,
+            teamId
+        };
     }
-    catch(err){
-        await client.query('ROLLBACK')
-        throw new Error(err);
-    }finally{
-        client.release();
+
+    async createTeams(roomId, userId, teamNames) {
+        roomValidator.validateRoomId(Number(roomId));
+        roomValidator.validateUserId(Number(userId));
+
+        const isHost = await roomRepository.isUserHost(roomId, userId);
+        if (!isHost) {
+            throw new UserNotHostError(userId, roomId);
+        }
+
+        const room = await roomRepository.getRoomById(roomId);
+        if (room.room_mode !== 'TEAM') {
+            throw new ValidationError('Teams can only be created in TEAM mode rooms');
+        }
+
+        if (room.state !== 'LOBBY') {
+            throw new IncorrectStateError(room.state, 'LOBBY', 'create teams');
+        }
+
+        const createdTeams = [];
+        for (const teamName of teamNames) {
+            const team = await teamRepository.createTeam({ room_id: roomId, team_name: teamName });
+            await leaderboardRepository.createEntry(null, team.id, roomId, 0);
+            createdTeams.push({
+                teamId: team.id,
+                teamName: team.team_name
+            });
+        }
+
+        return createdTeams;
+    }
+
+    async startQuiz(roomId, userId) {
+        roomValidator.validateRoomId(Number(roomId));
+        roomValidator.validateUserId(Number(userId));
+
+        const isHost = await roomRepository.isUserHost(Number(roomId), userId);
+        if (!isHost) {
+            throw new UserNotHostError(userId, roomId);
+        }
+
+        const room = await roomRepository.getRoomById(Number(roomId));
+        if (room.state !== 'LOBBY') {
+            throw new IncorrectStateError(room.state, 'LOBBY', 'start quiz');
+        }
+
+        const quiz = await quizRepository.getQuizByRoomId(room.id);
+        if (!quiz) {
+            throw new ValidationError('No quiz has been created for this room');
+        }
+
+        const questions = await questionRepository.getQuestionsByQuizId(quiz.id);
+        if (questions.length === 0) {
+            throw new ValidationError('Quiz has no questions');
+        }
+
+        await roomRepository.updateRoomState(room.id, 'LIVE');
+        await quizTimerService.registerQuizTimer(room.id, quiz.id, quiz.duration_seconds);
+
+        return {
+            roomId: room.id,
+            quizId: quiz.id,
+            state: 'LIVE',
+            firstQuestion: {
+                id: questions[0].id,
+                text: questions[0].question_text,
+                options: questions[0].question_options,
+                order: questions[0].question_order
+            }
+        };
+    }
+
+    async submitAnswer(userId, roomId, questionId, selectedOption, quizId = null, teamId = null) {
+        roomValidator.validateUserId(userId);
+        roomValidator.validateRoomId(Number(roomId));
+        roomValidator.validateQuestionId(Number(questionId));
+        roomValidator.validateSelectedOption(Number(selectedOption));
+
+        const room = await roomRepository.getRoomById(Number(roomId));
+        if (!(await roomRepository.isUserInRoom(room.id, userId))) {
+            throw new UserNotInRoomError(userId, room.id);
+        }
+
+        if (room.state !== 'LIVE') {
+            throw new IncorrectStateError(room.state, 'LIVE', 'submit answer');
+        }
+
+        const activeQuiz = quizId ? await quizRepository.getQuizById(Number(quizId)) : await quizRepository.getQuizByRoomId(room.id);
+        if (!activeQuiz) {
+            throw new ValidationError('No active quiz found for this room');
+        }
+        const question = await questionRepository.getQuestionById(Number(questionId));
+
+        if (question.quizzes_id !== activeQuiz.id) {
+            throw new ValidationError('Question does not belong to this quiz');
+        }
+
+        const effectiveTeamId = room.room_mode === 'TEAM'
+            ? teamId || (await roomRepository.getUserTeamInRoom(userId, room.id))?.team_id
+            : null;
+
+        if (room.room_mode === 'TEAM' && !effectiveTeamId) {
+            throw new ValidationError('User must belong to a team in TEAM mode');
+        }
+
+        const alreadyAnswered = room.room_mode === 'TEAM'
+            ? await submissionRepository.hasTeamAnsweredQuestion(effectiveTeamId, question.id)
+            : await submissionRepository.hasUserAnsweredQuestion(userId, question.id);
+
+        if (alreadyAnswered) {
+            throw new ValidationError('Answer already submitted');
+        }
+
+        const submission = await submissionRepository.submitAnswer(
+            userId,
+            effectiveTeamId,
+            activeQuiz.id,
+            question.id,
+            Number(selectedOption)
+        );
+
+        const isCorrect = Number(selectedOption) === question.correct_option;
+        if (isCorrect) {
+            if (room.room_mode === 'TEAM') {
+                await leaderboardRepository.updateTeamScore(effectiveTeamId, room.id, 1);
+            } else {
+                await leaderboardRepository.updateUserScore(userId, room.id, 1);
+            }
+        }
+
+        return {
+            submissionId: submission.id,
+            quizId: activeQuiz.id,
+            questionId: question.id,
+            selectedOption: Number(selectedOption),
+            correctOption: question.correct_option,
+            isCorrect
+        };
+    }
+
+    async endQuiz(roomId, userId) {
+        roomValidator.validateRoomId(Number(roomId));
+
+        if (userId && !(await roomRepository.isUserHost(Number(roomId), userId))) {
+            throw new UserNotHostError(userId, roomId);
+        }
+
+        const room = await roomRepository.getRoomById(Number(roomId));
+        if (room.state !== 'LIVE') {
+            throw new IncorrectStateError(room.state, 'LIVE', 'end quiz');
+        }
+
+        const quiz = await quizRepository.getQuizByRoomId(room.id);
+        if (quiz) {
+            await quizTimerService.cancelQuizTimer(quiz.id);
+        }
+
+        await roomRepository.updateRoomState(room.id, 'ENDED');
+
+        return {
+            roomId: room.id,
+            state: 'ENDED',
+            finalLeaderboard: await this.getLeaderboard(room.id, room.host_id)
+        };
+    }
+
+    async leaveRoom(roomId, userId) {
+        if (!(await roomRepository.isUserInRoom(Number(roomId), userId))) {
+            throw new UserNotInRoomError(userId, roomId);
+        }
+
+        const room = await roomRepository.getRoomById(Number(roomId));
+        if (room.state !== 'LOBBY') {
+            throw new IncorrectStateError(room.state, 'LOBBY', 'leave room');
+        }
+
+        return roomRepository.removeUserFromRoom(Number(roomId), userId);
+    }
+
+    async restartRoom(roomId, userId) {
+        const room = await roomRepository.getRoomById(Number(roomId));
+        if (!(await roomRepository.isUserHost(room.id, userId))) {
+            throw new UserNotHostError(userId, roomId);
+        }
+
+        if (room.state !== 'ENDED') {
+            throw new IncorrectStateError(room.state, 'ENDED', 'restart room');
+        }
+
+        const quiz = await quizRepository.getQuizByRoomId(room.id);
+        if (quiz) {
+            await submissionRepository.deleteSubmissionsByQuiz(quiz.id);
+        }
+
+        await leaderboardRepository.resetScoresByRoomId(room.id);
+        await roomRepository.updateRoomState(room.id, 'LOBBY');
+
+        return {
+            roomId: room.id,
+            state: 'LOBBY'
+        };
+    }
+
+    async getRoomInfo(roomId, userId) {
+        if (!(await roomRepository.isUserInRoom(Number(roomId), userId))) {
+            throw new UserNotInRoomError(userId, roomId);
+        }
+
+        const room = await roomRepository.getRoomWithUsers(Number(roomId));
+        const quiz = await quizRepository.getQuizByRoomId(Number(roomId));
+        const teams = room.room_mode === 'TEAM' ? await teamRepository.getTeamsByRoomId(Number(roomId)) : [];
+
+        return {
+            ...room,
+            currentQuiz: quiz,
+            teams
+        };
+    }
+
+    async getLeaderboard(roomId, userId) {
+        if (!(await roomRepository.isUserInRoom(Number(roomId), userId))) {
+            throw new UserNotInRoomError(userId, roomId);
+        }
+
+        const room = await roomRepository.getRoomById(Number(roomId));
+        return room.room_mode === 'TEAM'
+            ? leaderboardRepository.getTeamLeaderboard(room.id)
+            : leaderboardRepository.getUserLeaderboard(room.id);
     }
 }
 
-async function joinroom(playerid,roomcode){
-    try{
-        let rw=await pool.query('SELECT id,state FROM rooms WHERE room_code=$1',[roomcode]);
-        if(rw.rowCount==0||rw.rows[0].state!='LOBBY'){
-            throw new Error("Room doesnt exist");
-        }
-        await pool.query('INSERT INTO room_users (room_id,user_id,role) VALUES($1,$2,$3)',[rw.rows[0].id,playerid,'player']);
-        await pool.query('INSERT INTO leaderboard (user_id,room_id,score) VALUES($1,$2,$3)',[playerid,rw.rows[0].id,0]);
-        return "SUCCESSFUL";
-    }
-    catch(err){
-        if(err.code=='23505'){throw {type:"User already in the room"};}
-        throw(err);
-    }
-}
-
-async function startquiz(roomid,userid,timelimit,quiztopic){
-    const client=await pool.connect();
-    try{
-        await client.query('BEGIN')
-        let rw=await client.query('SELECT host_id,state FROM rooms WHERE id=$1',[roomid]);
-        if(rw.rowCount==0){
-            throw {type:"Room doesnt exist"};
-        }
-        if(rw.rows[0].host_id!=userid){
-            throw {type:"User is not a host"};
-        }
-        if(rw.rows[0].state!="LOBBY"){
-            throw {type:"Incorrect state"};
-        }
-        if(timelimit<=0){
-            throw {type:"Timelimit must be greater than zero"};
-        }
-        await client.query('UPDATE rooms SET state=$1 WHERE id=$2',['LIVE',roomid]);
-        // inserting quiz data in table
-        const quiz=await client.query(`INSERT INTO quizzes (room_id,quiz_topic,duration_seconds,expires_at) VALUES($1,$2,$3,NOW() + ($3::int  * INTERVAL '1 second')) RETURNING id,expires_at`,[roomid,quiztopic,timelimit]);
-        console.log(`quiz id ${quiz.rows[0].id}`);
-        console.log(`expires at ${quiz.rows[0].expires_at}`);
-        console.log("hogya");
-        /// llm call
-        let quiz_question=await call_llm(quiztopic);
-        const quizid=quiz.rows[0].id;
-        // inserting questions in database (currently only 10 questions)
-        for(let i=0;i<10;i++){
-            // console.log(quiz_question.questions[i].question_text);
-            // console.log(quiz_question.questions[i].options);
-            let question_text=quiz_question.questions[i].question_text;
-            let options=quiz_question.questions[i].options;
-            let correct_option=quiz_question.questions[i].correct_option;
-            let rw1=await client.query('INSERT INTO questions (quizzes_id,question_text,question_options,correct_option,question_order) VALUES($1,$2,$3,$4,$5) RETURNING id',[quizid,question_text,options,correct_option,i+1]);
-            console.log(`question id ${rw1.rows[0].id} correctoption ${correct_option}`);
-        }
-        // to end quiz after timelimit
-        await client.query('COMMIT')
-        return "SUCCESSFUL";
-    }
-    catch(err){
-        await client.query('ROLLBACK')
-        console.log(err);
-        throw(err);
-    }finally{
-        client.release();
-    }
-}
-async function endquiz(roomid){
-    console.log("endquiz");
-    try{
-        let rw=await pool.query('SELECT state FROM rooms WHERE id=$1',[roomid]);
-        if(rw.rowCount==0){
-            throw {type:"Room doesnt exist"};
-        }
-        if(rw.rows[0].state!="LIVE"){
-            throw {type:"Incorrect state"};
-        }
-        await pool.query('UPDATE rooms SET state=$1 WHERE id=$2',['ENDED',roomid]);
-        return "SUCCESSFUL";
-    }
-    catch(err){
-        console.log(err);
-        throw(err);
-    }
-}
-
-async function leaveroom(roomid,playerid){
-    try{
-        let rw=await pool.query('SELECT state FROM rooms WHERE id=$1',[roomid]);
-        let rw1=await pool.query('SELECT * FROM room_users WHERE room_id = $1 AND user_id = $2',[roomid,playerid]);
-        if(rw.rowCount==0){
-            throw {type:"Room doesnt exist"};
-        }
-        if(rw1.rowCount==0){
-            throw {type:"USER DOES NOT EXIST IN THE ROOM"};
-        }
-        if(rw.rows[0].state!='LOBBY'){
-            throw {type:"WRONG STATE"};
-        }
-        await pool.query('DELETE FROM room_users WHERE room_id = $1 AND user_id = $2',[roomid, playerid]);
-        return "SUCCESSFUL";
-    }
-    catch(err){
-        throw(err);
-    }
-}
-
-async function restartroom(roomid,userid){
-    const client=await pool.connect();
-    try{
-        await client.query('BEGIN')
-        let rw=await client.query('SELECT host_id,state FROM rooms WHERE id=$1',[roomid]);
-        if(rw.rowCount==0){
-            throw {type:"Room doesnt exist"};
-        }
-        if(rw.rows[0].host_id!=userid){
-            throw {type:"User is not a host"};
-        }
-        if(rw.rows[0].state!="ENDED"){
-            throw {type:"Incorrect state"};
-        }
-        await client.query('UPDATE rooms SET state=$1 WHERE id=$2',['LOBBY',roomid]);
-        let rw1=await client.query('SELECT * FROM quizzes WHERE room_id=$1',[roomid]);
-        let quizzes_id=rw1.rows[0].id;
-        let rw2=await client.query('SELECT id FROM questions WHERE quizzes_id=$1',[quizzes_id]);
-        for(let i=0;i<rw2.rowCount;i++){
-            let questionid=rw2.rows[i].id;
-            await client.query('DELETE FROM submissions WHERE questions_id=$1',[questionid]);
-        }
-        await client.query('DELETE FROM questions WHERE quizzes_id=$1',[quizzes_id]);
-        await client.query('DELETE FROM quizzes WHERE room_id=$1',[roomid]);
-        await client.query('COMMIT')        
-        return "SUCCESSFUL";
-    }
-    catch(err){
-        await client.query('ROLLBACK')
-        console.log(err);
-        throw(err);
-    }finally{
-        client.release();
-    }
-}
-async function submitanswer(userid,roomid,questionid,selected_option,quizid){
-    const client=await pool.connect();
-    try{
-        await client.query('BEGIN')
-        console.log("jhhh4");
-        let rw=await client.query('SELECT host_id,state FROM rooms WHERE id=$1',[roomid]);
-        console.log("jhhh5");
-        let rw1=await client.query('SELECT * FROM room_users WHERE room_id = $1 AND user_id = $2',[roomid,userid]);
-        console.log("jhhh3");
-        if(rw.rowCount==0){
-            throw {type:"Room doesnt exist"};
-        }
-        if(rw1.rowCount==0){
-            throw {type:"USER DOES NOT EXIST IN THE ROOM"};
-        }
-        if(rw.rows[0].host_id==userid){
-            throw {type:"User is a host"};
-        }
-        if(rw.rows[0].state!="LIVE"){
-            throw {type:"Incorrect state"};
-        }
-        console.log("jhhh2");
-        let ch=await client.query('SELECT quizzes_id FROM questions WHERE id=$1',[questionid]);
-        if(ch.rowCount==0){throw {type:"Question doesnt exist"};}
-        if(ch.rows[0].quizzes_id!=quizid){
-            throw {type:"Question doesnt exist"};
-        }
-        console.log("jhhh1");
-        let rw2=await client.query('SELECT * FROM submissions WHERE user_id=$1 AND questions_id=$2',[userid,questionid]);
-        console.log("jhhh");
-        if(rw2.rowCount!=0){
-            throw {type:"ALREADY ANSWERED"};
-        }
-        await client.query('INSERT INTO submissions (user_id,questions_id,selected_option) VALUES($1,$2,$3)',[userid,questionid,selected_option]);
-        let rw3=await client.query('SELECT correct_option FROM questions WHERE id=$1',[questionid]);
-        console.log(rw3.rows[0].correct_option);
-        let correct_option=rw3.rows[0].correct_option;
-        let fl=0;if(selected_option==correct_option){fl=1;}
-        let rw4=await client.query('SELECT score FROM leaderboard WHERE user_id=$1 AND room_id=$2',[userid,roomid]);
-        if(rw4.rowCount==0){
-            console.log(`current score of ${userid} is ${fl}`);
-            await client.query('INSERT INTO leaderboard (user_id,room_id,score) VALUES($1,$2,$3)',[userid,roomid,fl]);
-        }
-        else{
-            let currentscore=rw4.rows[0].score;
-            if(fl==1){
-                console.log(`current score of ${userid} is ${currentscore+1}`);
-                await client.query('UPDATE leaderboard SET score=$1 WHERE user_id=$2 AND room_id=$3',[currentscore+1,userid,roomid]);
-            }
-            else{
-                console.log(`current score of ${userid} is ${currentscore}`);
-            }
-        }
-        await client.query('COMMIT')
-        return "SUCCESSFUL";
-    }
-    catch(err){
-        await client.query('ROLLBACK')
-        console.log(err);
-        throw(err);
-    }finally{
-        client.release();
-    }
-}
-export {createroom,joinroom,startquiz,leaveroom,restartroom,submitanswer,endquiz};
+export default new RoomService();

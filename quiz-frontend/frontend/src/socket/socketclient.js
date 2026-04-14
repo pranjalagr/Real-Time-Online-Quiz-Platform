@@ -1,42 +1,36 @@
-// single socket instance
-// read jwt and send it 
-// send jwt 
-// listen events 
-// render them
-import { io } from "socket.io-client";
-console.log(localStorage.getItem("token"));
-let socket = null;
-export const connectSocket = (token) => {
-    console.log(`yaha aaya ${localStorage.getItem("token")}`);
-    if(socket){
-        console.log("nahi aara");return socket;
-    }
-    socket = io("http://localhost:5000", {
-        auth: { token: token}
-    });
-    console.log(`yaha aaya1 ${localStorage.getItem("token")}`);
-    socket.on("connect", () => {
-      console.log("CONNECTED", socket.id);
-    });
-    socket.on("disconnect", () => {
-        console.log("DISCONNECTED");
-    });
-    socket.on("answer_submitted", (data) => {
-        console.log("answer_submitted:", data);
-    });
-    socket.on("leaderboard_update", (data) => {
-        console.log("leaderboard_update", data);
-    });
-    socket.on("room-message", (data) => {
-        console.log("room-message", data);
-    });
-    socket.on("quizevent", (data) => {
-        console.log("quizevent:", data);
-    });
-    socket.on("Error", (err) => {
-        console.error("ERROR:", err);
-    });
+import { io } from 'socket.io-client';
 
-    return  socket;
-};
-export {socket};
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+
+let socket = null;
+
+export function connectSocket(token) {
+  if (!token) {
+    return null;
+  }
+
+  if (socket) {
+    if (!socket.connected) {
+      socket.connect();
+    }
+    return socket;
+  }
+
+  socket = io(SOCKET_URL, {
+    autoConnect: true,
+    auth: { token }
+  });
+
+  return socket;
+}
+
+export function getSocket() {
+  return socket;
+}
+
+export function disconnectSocket() {
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+}

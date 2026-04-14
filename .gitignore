@@ -1,14 +1,28 @@
-# ===== BACKEND =====
-quiz-backend/node_modules/
-quiz-backend/.env
-
-# ===== GENERAL =====
+# dependencies
 node_modules/
+
+# env files
 .env
+.env.*
+!.env.example
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# build outputs
 dist/
 build/
 coverage/
+
+# editor/system files
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+
+# optional local temp files
+*.tmp
+*.temp

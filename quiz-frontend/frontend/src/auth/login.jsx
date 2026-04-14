@@ -1,37 +1,78 @@
-import { login } from "./authService.js";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { use, useState } from 'react'
-import { useNavigate } from "react-router-dom";
-function Loginpage(){
-    const [email,useemail]=useState("");
-    const [pass,usepass]=useState("");
-    const [mess,usemess]=useState(null);
-    const navigate = useNavigate();
-    console.log("login");
-    async function logincall(email,pass){
-        const res=await login(email,pass);
-        console.log(`uuuu${res}`);
-        if(res=="true"){usemess("true");}
-        else{usemess(res.error);}
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { login } from './authService.js';
+import { useAppState } from '../state/quizstate.js';
+
+function Loginpage() {
+  const navigate = useNavigate();
+  const { loginWithPayload } = useAppState();
+  const [form, setForm] = useState({ email: '', password: '' });
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const payload = await login(form.email, form.password);
+      loginWithPayload(payload);
+      navigate('/', { replace: true });
+    } catch (submitError) {
+      setError(submitError.message);
+    } finally {
+      setLoading(false);
     }
-    return (
-        <>
-          <div>
-            <input type="text" placeholder="Email" onChange={(e)=>(useemail(e.target.value))}/>
-            <input type="text" placeholder="Password" onChange={(e)=>(usepass(e.target.value))}/>
-            <button onClick={()=>(logincall(email,pass))}>Submit</button>
-            {
-                mess== "true" && (
-                    navigate("/Home")
-                )
-            }
-            {
-                mess!="true" && (
-                    <div>{mess}</div>
-                )
-            }
-          </div>
-        </>
-    )
+  };
+
+  return (
+    <main className="auth-shell">
+      <section className="auth-card">
+        <div className="auth-copy">
+          <p className="eyebrow">Host Sign In</p>
+          <h1>Return to your quiz command center.</h1>
+          <p className="muted-copy">
+            Sign in as a registered host to create rooms, upload PDFs, and run live quiz rounds.
+          </p>
+        </div>
+
+        <form className="auth-form" onSubmit={handleSubmit}>
+          <label>
+            <span>Email</span>
+            <input
+              type="email"
+              value={form.email}
+              onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
+              placeholder="host@example.com"
+              required
+            />
+          </label>
+
+          <label>
+            <span>Password</span>
+            <input
+              type="password"
+              value={form.password}
+              onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
+              placeholder="Minimum 10 characters"
+              required
+            />
+          </label>
+
+          {error ? <p className="form-error">{error}</p> : null}
+
+          <button className="primary-button" type="submit" disabled={loading}>
+            {loading ? 'Signing In...' : 'Sign In'}
+          </button>
+        </form>
+
+        <p className="auth-footer">
+          Need an account? <Link to="/register">Create one</Link>
+        </p>
+      </section>
+    </main>
+  );
 }
-export {Loginpage};
+
+export { Loginpage };

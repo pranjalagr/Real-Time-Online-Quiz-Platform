@@ -1,37 +1,135 @@
-import bcrypt from 'bcrypt'
-import pool from '../db/index.js'
-import jwt from 'jsonwebtoken'
-async function createuser(email,password){
-    // received username and password.
-    // check if same username exists in db , if exists return user exists
-    // hash password
-    // add username and hash pass in db
-    // return successfull 
-    console.log("service");
-    const res=await pool.query('SELECT id FROM users WHERE email=$1',[email])
-    if(res.rowCount>0){
-        throw new Error("User Already Exists");
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv';
+import userRepository from '../repositories/user.repositories.js';
+import { ValidationError, DatabaseError, NotFoundError, UnauthorizedError } from '../models/errors.js';
+
+dotenv.config();
+
+class AuthService {
+    async createUser(email, password, username = null) {
+        if (!email || !password) {
+            throw new ValidationError('Email and password are required');
+        }
+
+        if (password.length < 10) {
+            throw new ValidationError('Password must be at least 10 characters long');
+        }
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            throw new ValidationError('Invalid email format');
+        }
+
+        const finalUsername = username || email.split('@')[0];
+        const existingUser = await userRepository.getUserByEmail(email);
+        if (existingUser) {
+            throw new ValidationError('Email already registered');
+        }
+
+        const passwordHash = await bcrypt.hash(password, 10);
+        const user = await userRepository.createUser({
+            username: finalUsername,
+            email,
+            password_hash: passwordHash,
+            user_type: 'REGISTERED'
+        });
+
+        return {
+            userId: user.id,
+            email: user.email,
+            username: user.username
+        };
     }
-    const passhash=await bcrypt.hash(password,10);
-    await pool.query('INSERT INTO users (email,password_hash) VALUES($1,$2)',[email,passhash])
-}
-async function authenticateuser(email,password){
-    // received username and password.
-    // checks username and password from db
-    // if success , make a token and return 
-    // otherwise return error
-    const res=await pool.query('SELECT password_hash,id FROM users WHERE email=$1',[email]);
-    if(res.rowCount==0){
-        throw new Error("User NOT Exists");
+
+    async createGuestUser(username) {
+        if (!username || username.trim().length < 2) {
+            throw new ValidationError('Username is required');
+        }
+
+        const user = await userRepository.createUser({
+            username: username.trim(),
+            user_type: 'GUEST'
+        });
+
+        const token = this.signToken(user);
+        return {
+            token,
+            user: {
+                userId: user.id,
+                username: user.username,
+                userType: user.user_type
+            }
+        };
     }
-    const cmp=await bcrypt.compare(password,res.rows[0].password_hash);
-    if(!cmp){throw new Error("Wrong password");}
-    const id=res.rows[0].id;
-    const token=jwt.sign(
-        { id: id, email: email },
-        process.env.JWT_SECRET,
-        {expiresIn:'1d'}
-    );
-    return token;
+
+    signToken(user) {
+        return jwt.sign(
+            {
+                id: user.id,
+                email: user.email,
+                username: user.username,
+                userType: user.user_type
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+    }
+
+    async authenticateUser(email, password) {
+        if (!email || !password) {
+            throw new ValidationError('Email and password are required');
+        }
+
+        const user = await userRepository.getUserByEmail(email);
+        if (!user || !user.password_hash) {
+            throw new UnauthorizedError('Invalid credentials');
+        }
+
+        const isValidPassword = await bcrypt.compare(password, user.password_hash);
+        if (!isValidPassword) {
+            throw new UnauthorizedError('Invalid credentials');
+        }
+
+        return {
+            token: this.signToken(user),
+            user: {
+                userId: user.id,
+                email: user.email,
+                username: user.username,
+                userType: user.user_type
+            }
+        };
+    }
+
+    async verifyToken(token) {
+        if (!token) {
+            throw new ValidationError('Token is required');
+        }
+
+        try {
+            return jwt.verify(token, process.env.JWT_SECRET);
+        } catch (error) {
+            if (error.name === 'TokenExpiredError') {
+                throw new UnauthorizedError('Token has expired');
+            }
+            throw new UnauthorizedError('Invalid token');
+        }
+    }
+
+    async getUserById(userId) {
+        const user = await userRepository.getUserById(userId);
+        if (!user) {
+            throw new NotFoundError('User', userId);
+        }
+        return {
+            userId: user.id,
+            email: user.email,
+            username: user.username,
+            userType: user.user_type,
+            createdAt: user.created_at
+        };
+    }
 }
-export {createuser,authenticateuser};
+
+export default new AuthService();

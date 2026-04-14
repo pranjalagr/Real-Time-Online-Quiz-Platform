@@ -1,38 +1,116 @@
-import {createuser,authenticateuser} from '../services/auth.services.js'
-async function register(request, response){
-    // take input (request) (read data from request body and stores it in variable)
-    // validate input or request (i dont know how to validate it, i can validate using if else statements but i vaguely remember other methods such as zod)
-    // asks service to make a user(call a function in service giving username and password and take response)
-    // send success or error response (send response in return)
-    console.log("controller");
-    let email=request.body.email;
-    let password=request.body.password;
-    if(!email||!password){return response.status(400).json({error:"Please fill all the fields."})}
-    if(password.length<10){return response.status(400).json({error:"The password length must be greater than 9"})}
-    try{
-        await createuser(email,password);
-        return (response.status(200).json({notification:"User registered, Please login"}));
-    } catch(error){
-        // console.error(error);
-        return response.status(400).json({error:"User already exists."})
+import authService from '../services/auth.services.js';
+import { ValidationError } from '../models/errors.js';
+
+class AuthController {
+    
+    /**
+     * Register Controller
+     * POST /api/auth/register
+     */
+    async register(req, res) {
+        try {
+            const { email, password } = req.body;
+            
+            // Basic validation
+            if (!email || !password) {
+                return res.status(400).json({ error: "Please fill all the fields." });
+            }
+            
+            if (password.length < 10) {
+                return res.status(400).json({ error: "The password length must be greater than 9" });
+            }
+            
+            // Email format validation
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) {
+                return res.status(400).json({ error: "Invalid email format" });
+            }
+            
+            await authService.createUser(email, password);
+            
+            return res.status(201).json({
+                success: true,
+                message: "User registered successfully. Please login."
+            });
+        } catch (error) {
+            console.error('Register error:', error);
+            
+            if (error instanceof ValidationError) {
+                return res.status(400).json({ error: error.message });
+            }
+            
+            // Assuming auth service throws specific errors
+            if (error.message.includes('already exists')) {
+                return res.status(409).json({ error: "User already exists." });
+            }
+            
+            return res.status(500).json({ error: "Internal server error" });
+        }
+    }
+
+    /**
+     * Login Controller
+     * POST /api/auth/login
+     */
+    async login(req, res) {
+        try {
+            const { email, password } = req.body;
+            
+            // Basic validation
+            if (!email || !password) {
+                return res.status(400).json({ error: "Please fill all the fields." });
+            }
+            
+            if (password.length < 10) {
+                return res.status(400).json({ error: "The password length must be greater than 9" });
+            }
+            
+            const result = await authService.authenticateUser(email, password);
+            
+            return res.status(200).json({
+                success: true,
+                message: "Login successful",
+                data: result
+            });
+        } catch (error) {
+            console.error('Login error:', error);
+            
+            if (error instanceof ValidationError) {
+                return res.status(400).json({ error: error.message });
+            }
+            
+            // Assuming auth service throws specific errors
+            if (error.message.includes('not found') || error.message.includes('invalid')) {
+                return res.status(401).json({ error: "Invalid credentials" });
+            }
+            
+            return res.status(500).json({ error: "Internal server error" });
+        }
+    }
+
+    async guest(req, res) {
+        try {
+            const { username } = req.body;
+
+            if (!username) {
+                return res.status(400).json({ error: 'Username is required' });
+            }
+
+            const result = await authService.createGuestUser(username);
+
+            return res.status(201).json({
+                success: true,
+                message: 'Guest session created',
+                data: result
+            });
+        } catch (error) {
+            console.error('Guest auth error:', error);
+            if (error instanceof ValidationError) {
+                return res.status(400).json({ error: error.message });
+            }
+            return res.status(500).json({ error: 'Internal server error' });
+        }
     }
 }
-async function login(request, response){
-    // take input (read data from request body and stores it in variable)
-    // validate input (same as register)
-    // asks service to check the user (call a function in service giving email and password and take token)
-    // recieve token if valid (send token in response)
-    // send token if valid or error response (send error if no user found)
-    let email=request.body.email;
-    let password=request.body.password;
-    if(!email||!password){return response.status(400).json({error:"Please fill all the fields."})}
-    if(password.length<10){return response.status(400).json({error:"The password length must be greater than 9"})}
-    try{
-        const res=await authenticateuser(email,password);
-        return (response.status(200).json(res));
-    } catch(err){
-        // console.log(error);
-        return response.status(400).json({error:"User not exists."});
-    }
-}
-export {register,login};
+
+export default new AuthController();

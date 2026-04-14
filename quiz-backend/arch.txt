@@ -1,0 +1,22 @@
+I am making a quiz game system. 
+Here user can make a quiz which people can play 
+There are two modes to play a quiz -- Single , multiplayer.
+In single mode, the quiz is played individually b/w many users, and in multiplayer mode it is played b/w teams.
+There are types through which quiz can be made - topic and through pdf
+In topic host will give a topic and no. of questions and we will make questions on the topic by calling llm api
+In pdf host will give a pdf, and we will make questions on the basis of the pdf.
+In pdf method, the process goes like this -- user gives a pdf, first backend generates a presigned link and sends to frontend, then frontend takes the link and store pdf on s3. Then we are using redis queue to store the job which workers can take and make the questions.
+In a room , there is a host which makes the questions and people which play the quiz in any mode(single or multiplayer). The host has to login by email and password but the users can play by just choosing a name.
+
+User logins -> Select create room -> select mode -> quiz maker -> ( select quiz type (pdf or topic) and acc. to that questions wil be formed, here user can give has a option to give additional prompts to add some questions if required.) -> (if single mode room code is generated and players can join through room code, if multiplayer host can add teams and links will be appeared for each team , through which users can join a team.) -> lobby
+
+-> Now host can start quiz and questions will appear on users screen, if there is a team only one time any person from the team can submit the answer -> leaderboard
+
+-> leaderboard is updated continuoulsy through servers. 
+
+-> there are many servers , so we will use a pub-sub system to update the leaderboard.
+
+-> using websockets for live connection for users to play quiz. 
+
+-> for generating questions through pdf, rag is used, first text extraction then embeddings, chunking and finding the avg. embeddings and generate questions form the avg. embeddings. 
+Also when user gives another prompt like there will be a prompt section in question section where user can suggest changes which user wants like generate more questions, first generate its embedding, then find similar embeddings and generate through giving these chunks to llm.
