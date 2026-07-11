@@ -54,7 +54,38 @@ The platform is designed around these main ideas:
 - `Quiz Engine`: controls question delivery, submissions, and scoring
 - `Leaderboard`: updates continuously during live play
 - `WebSockets`: keep gameplay and leaderboard updates live
-- `Pub/Sub`: intended for scaling leaderboard updates across multiple server instances
+- `Multi-server deployment`: the backend can run on multiple EC2 instances behind an AWS Application Load Balancer
+- `Sticky sessions`: help keep a browser attached to the same backend instance for the WebSocket connection
+- `Redis adapter`: forwards Socket.IO events across all backend instances so one server can broadcast to users connected on another server
+- `Redis sorted sets`: schedule timed quiz endings in a shared timer queue
+- `Workers`: handle background jobs such as submission processing and quiz-ending timers
+
+### Multi-Server Flow
+
+The current deployment pattern is:
+
+1. Client traffic goes to the AWS Application Load Balancer
+2. The ALB routes the request to one of the EC2 backend servers
+3. HTTP requests handle setup and persistence flows such as login, room creation, room joining, quiz creation, and leaderboard reads
+4. Socket.IO handles live actions such as `START_QUIZ`, `SUBMIT_ANSWER`, and realtime room broadcasts
+5. The Socket.IO Redis adapter keeps all backend instances in sync for room events
+6. Redis stores shared live state, queued work, and quiz timer entries
+7. Workers consume Redis-backed background jobs and finish async tasks without blocking the web server
+
+### Reference Diagram
+
+![Architecture Diagram](quiz-architecture.png)
+
+```text
+clients
+  -> AWS ALB
+  -> EC2 server 1 / EC2 server 2 / EC2 server 3
+       -> Socket.IO server
+       -> Redis adapter
+       -> Redis cache / queue / timer set
+       -> PostgreSQL / RDS
+       -> workers
+```
 
 ## Project Structure
 
