@@ -106,11 +106,8 @@ app.get('/api/docs', (req, res) => {
             rooms: {
                 create: 'POST /api/rooms/create',
                 join: 'POST /api/rooms/join',
-                start: 'POST /api/rooms/:roomId/start',
-                end: 'POST /api/rooms/:roomId/end',
                 leave: 'POST /api/rooms/:roomId/leave',
                 restart: 'POST /api/rooms/:roomId/restart',
-                submitAnswer: 'POST /api/rooms/:roomId/questions/:questionId/submit',
                 getRoomInfo: 'GET /api/rooms/:roomId',
                 getLeaderboard: 'GET /api/rooms/:roomId/leaderboard'
             },

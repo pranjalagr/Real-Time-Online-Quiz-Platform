@@ -1,8 +1,8 @@
 import dotenv from 'dotenv';
 import { PDFParse } from 'pdf-parse';
-import quizServices from '../services/quizservices/quizservices.js';
-import llmService from '../services/llminput.js';
-import pdfQuizGenerator from '../services/quizservices/generators/pdfquiz.js';
+import s3Service from '../services/s3.service.js';
+import llmService from '../services/llm.service.js';
+import pdfQuizGenerator from '../services/pdfquiz.generator.js';
 import { pdfProcessingQueue } from '../services/redis.js';
 
 dotenv.config();
@@ -24,7 +24,7 @@ function chunkText(text, chunkSize = 3000, overlap = 300) {
 }
 
 async function generateQuestionsFromPdf(key, numQuestions, additionalPrompt = '') {
-    const buffer = await quizServices.getObjectBuffer(key);
+    const buffer = await s3Service.getObjectBuffer(key);
     const parser = new PDFParse({ data: buffer });
     const parsed = await parser.getText();
     await parser.destroy();
@@ -38,7 +38,6 @@ async function generateQuestionsFromPdf(key, numQuestions, additionalPrompt = ''
     const prompt = additionalPrompt?.trim()
         ? `Generate quiz questions using this instruction: ${additionalPrompt}`
         : 'Generate clear and balanced quiz questions from the PDF content';
-
     return llmService.generateQuestionsFromChunks(chunks, prompt, numQuestions);
 }
 

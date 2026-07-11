@@ -18,5 +18,8 @@ User logins -> Select create room -> select mode -> quiz maker -> ( select quiz 
 
 -> using websockets for live connection for users to play quiz. 
 
--> for generating questions through pdf, rag is used, first text extraction then embeddings, chunking and finding the avg. embeddings and generate questions form the avg. embeddings. 
+-> for generating questions through pdf, rag is used, first text extraction then embeddings, chunking and finding the avg. embeddings and generate questions form the avg. embeddings.
+
 Also when user gives another prompt like there will be a prompt section in question section where user can suggest changes which user wants like generate more questions, first generate its embedding, then find similar embeddings and generate through giving these chunks to llm.
+
+used postgres -- relational sql database , constraints validation in comparison to nosql database which is used for event logs, caching, sessions, chat messages, analytics, or very large distributed systems.

@@ -1,59 +1,85 @@
-import { addQuizTimerJob, quizTimerQueue } from './redis.js';
-import roomRepository from '../repositories/room.repositories.js';
-import pubSubService from './pubsub.service.js';
+import { connection } from './redis.js';
 import { ValidationError } from '../models/errors.js';
 
+const QUIZ_TIMER_ZSET_KEY = 'quiz:timers:due';
+
+const claimDueQuizEndScript = `
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+
+local items = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+if (#items == 0) then
+  return nil
+end
+
+local member = items[1]
+local score = tonumber(items[2])
+
+if score > now then
+  return nil
+end
+
+local removed = redis.call('ZREM', key, member)
+if removed == 0 then
+  return nil
+end
+
+return cjson.encode({
+  member = member,
+  score = score
+})
+`;
+
 class QuizTimerService {
-    async registerQuizTimer(roomId, quizId, totalDuration) {
-        if (!roomId || !quizId || !totalDuration) {
-            throw new ValidationError('roomId, quizId and totalDuration are required');
-        }
+  getTimerMember(roomId, quizId) {
+    return JSON.stringify({
+      roomId: Number(roomId),
+      quizId: Number(quizId)
+    });
+  }
 
-        const expiresAt = new Date(Date.now() + Number(totalDuration) * 1000).toISOString();
-        const job = await addQuizTimerJob({
-            type: 'QUIZ_END',
-            roomId: Number(roomId),
-            quizId: Number(quizId),
-            expiresAt
-        }, {
-            delay: Number(totalDuration) * 1000,
-            jobId: `quiz-${quizId}-end`
-        });
-
-        await pubSubService.publish(`room:${roomId}:quiz`, {
-            event: 'quiz_timer_started',
-            roomId: Number(roomId),
-            quizId: Number(quizId),
-            expiresAt
-        });
-
-        return {
-            jobId: job.id,
-            expiresAt
-        };
+  async scheduleQuizEnd(roomId, quizId, totalDuration) {
+    if (!roomId || !quizId || !totalDuration) {
+      throw new ValidationError('roomId, quizId and totalDuration are required');
     }
 
-    async cancelQuizTimer(quizId) {
-        const job = await quizTimerQueue.getJob(`quiz-${quizId}-end`);
-        if (!job) {
-            return false;
-        }
+    const expiresAtMs = Date.now() + (Number(totalDuration) * 1000);
+    const member = this.getTimerMember(roomId, quizId);
 
-        await job.remove();
-        return true;
+    await connection.zadd(QUIZ_TIMER_ZSET_KEY, expiresAtMs, member);
+
+    return {
+      roomId: Number(roomId),
+      quizId: Number(quizId),
+      expiresAt: new Date(expiresAtMs).toISOString()
+    };
+  }
+
+  async cancelQuizEnd(roomId, quizId) {
+    if (!roomId || !quizId) {
+      throw new ValidationError('roomId and quizId are required');
     }
+
+    const member = this.getTimerMember(roomId, quizId);
+    const removed = await connection.zrem(QUIZ_TIMER_ZSET_KEY, member);
+    return removed > 0;
+  }
+
+  async claimDueQuizEnd(now = Date.now()) {
+    const rawResult = await connection.eval(claimDueQuizEndScript, 1, QUIZ_TIMER_ZSET_KEY, String(now));
+    if (!rawResult) {
+      return null;
+    }
+
+    const parsed = typeof rawResult === 'string' ? JSON.parse(rawResult) : rawResult;
+    const member = typeof parsed.member === 'string' ? JSON.parse(parsed.member) : parsed.member;
+
+    return {
+      roomId: Number(member.roomId),
+      quizId: Number(member.quizId),
+      dueAt: Number(parsed.score)
+    };
+  }
 }
-
-quizTimerQueue.process(async (job) => {
-    if (job.data.type === 'QUIZ_END') {
-        await roomRepository.updateRoomState(job.data.roomId, 'ENDED');
-        await pubSubService.publish(`room:${job.data.roomId}:quiz`, {
-            event: 'quiz_auto_ended',
-            roomId: job.data.roomId,
-            quizId: job.data.quizId
-        });
-    }
-    return true;
-});
 
 export default new QuizTimerService();

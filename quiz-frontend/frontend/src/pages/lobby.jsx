@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api, uploadFileToPresignedUrl } from '../api/client.js';
 import ParticipantsList from '../components/participantslist.jsx';
 import { useAppState } from '../state/quizstate.js';
+import { emitSocket, getSocket } from '../socket/socketclient.js';
 
 function createBlankQuestion(order) {
   return {
@@ -45,6 +46,43 @@ function LobbyPage() {
     const timer = setInterval(loadRoom, 5000);
     return () => clearInterval(timer);
   }, [roomId, token]);
+
+  useEffect(() => {
+    const syncRoom = async () => {
+      try {
+        await emitSocket('SYNC_ROOM', { roomId: Number(roomId) });
+      } catch {
+        // The socket may still be connecting; the next refresh will try again.
+      }
+    };
+
+    syncRoom();
+  }, [roomId]);
+
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) {
+      return undefined;
+    }
+
+    const handleQuizStarted = (payload) => {
+      if (Number(payload?.roomId) !== Number(roomId)) {
+        return;
+      }
+
+      if (Number(room?.host_id) === Number(user?.userId || user?.id)) {
+        navigate(`/rooms/${roomId}/host`);
+      } else {
+        navigate(`/rooms/${roomId}/quiz`);
+      }
+    };
+
+    socket.on('QUIZ_STARTED', handleQuizStarted);
+
+    return () => {
+      socket.off('QUIZ_STARTED', handleQuizStarted);
+    };
+  }, [navigate, room?.host_id, roomId, user]);
 
   useEffect(() => {
     if (!room) {
@@ -154,7 +192,7 @@ function LobbyPage() {
     setError('');
 
     try {
-      await api.startRoomQuiz(token, roomId);
+      await emitSocket('START_QUIZ', { roomId: Number(roomId) });
       await loadRoom();
     } catch (startError) {
       setError(startError.message);

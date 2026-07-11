@@ -197,7 +197,6 @@ const SOCKET_EVENTS = {
     LEAVE_ROOM: 'leave_room',
     START_QUIZ: 'start_quiz',
     SUBMIT_ANSWER: 'submit_answer',
-    END_QUIZ: 'end_quiz',
     
     // Server events
     ROOM_UPDATED: 'room_updated',

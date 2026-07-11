@@ -1,3 +1,11 @@
+// routes -- to make teams 
+// as we know host must have login and other can guest
+
+// create more team -- host 
+// team link share
+
+
+
 import express from 'express';
 import roomController from '../controllers/room.controllers.js';
 import { authMiddleware } from '../middlewares/auth.middlewares.js';

@@ -7,6 +7,8 @@ dotenv.config();
 const redisConfig = {
   host: process.env.REDIS_HOST || '127.0.0.1',
   port: Number(process.env.REDIS_PORT || 6379),
+  tls: process.env.REDIS_USE_TLS === 'true' ? {} : undefined,
+
   retryStrategy: (times) => Math.min(times * 50, 2000),
   enableReadyCheck: false,
   enableOfflineQueue: true,
@@ -15,8 +17,7 @@ const redisConfig = {
 const connection = new IORedis(redisConfig);
 
 const pdfProcessingQueue = new Queue('pdf-processing', { redis: redisConfig });
-const leaderboardUpdateQueue = new Queue('leaderboard-update', { redis: redisConfig });
-const quizTimerQueue = new Queue('quiz-timer', { redis: redisConfig });
+const submissionProcessingQueue = new Queue('submission-processing', { redis: redisConfig });
 
 async function addPdfProcessingJob(pdfData, options = {}) {
   return pdfProcessingQueue.add(pdfData, {
@@ -31,20 +32,13 @@ async function addPdfProcessingJob(pdfData, options = {}) {
   });
 }
 
-async function addLeaderboardJob(data, options = {}) {
-  return leaderboardUpdateQueue.add(data, {
-    attempts: 2,
+async function addSubmissionJob(data, options = {}) {
+  return submissionProcessingQueue.add(data, {
+    attempts: 3,
     backoff: {
-      type: 'fixed',
+      type: 'exponential',
       delay: 1000
     },
-    removeOnComplete: true,
-    ...options
-  });
-}
-
-async function addQuizTimerJob(data, options = {}) {
-  return quizTimerQueue.add(data, {
     removeOnComplete: false,
     removeOnFail: false,
     ...options
@@ -72,11 +66,9 @@ async function deleteKey(key) {
 export {
   connection,
   pdfProcessingQueue,
-  leaderboardUpdateQueue,
-  quizTimerQueue,
+  submissionProcessingQueue,
   addPdfProcessingJob,
-  addLeaderboardJob,
-  addQuizTimerJob,
+  addSubmissionJob,
   setJson,
   getJson,
   deleteKey

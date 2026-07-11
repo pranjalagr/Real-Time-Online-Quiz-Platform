@@ -88,9 +88,21 @@ CREATE TABLE leaderboard(
     CONSTRAINT solo_or_team CHECK (
         (user_id IS NOT NULL AND team_id IS NULL) OR
         (user_id IS NULL AND team_id IS NOT NULL)
-    ),
-    UNIQUE(room_id, user_id, team_id)
+    )
 );
 
-CREATE UNIQUE INDEX unique_team_question
-ON submissions (COALESCE(team_id, -1), questions_id);
+CREATE UNIQUE INDEX unique_solo_submission
+ON submissions (user_id, questions_id)
+WHERE team_id IS NULL;
+
+CREATE UNIQUE INDEX unique_team_submission
+ON submissions (team_id, questions_id)
+WHERE team_id IS NOT NULL;
+
+CREATE UNIQUE INDEX unique_room_user_leaderboard
+ON leaderboard (room_id, user_id)
+WHERE user_id IS NOT NULL;
+
+CREATE UNIQUE INDEX unique_room_team_leaderboard
+ON leaderboard (room_id, team_id)
+WHERE team_id IS NOT NULL;

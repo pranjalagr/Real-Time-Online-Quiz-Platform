@@ -18,14 +18,35 @@ export function connectSocket(token) {
 
   socket = io(SOCKET_URL, {
     autoConnect: true,
-    auth: { token }
-  });
-
+    auth: { token },
+    transports: ['websocket'], // 👈 FORCE WEBSOCKETS ONLY
+    withCredentials: true
+  });  
   return socket;
 }
 
 export function getSocket() {
   return socket;
+}
+
+export function emitSocket(eventName, payload) {
+  return new Promise((resolve, reject) => {
+    const activeSocket = getSocket();
+
+    if (!activeSocket) {
+      reject(new Error('Socket is not connected'));
+      return;
+    }
+
+    activeSocket.emit(eventName, payload, (response) => {
+      if (response?.success) {
+        resolve(response);
+        return;
+      }
+
+      reject(new Error(response?.error || 'Socket event failed'));
+    });
+  });
 }
 
 export function disconnectSocket() {

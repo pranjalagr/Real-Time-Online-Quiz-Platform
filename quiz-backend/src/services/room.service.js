@@ -7,6 +7,7 @@ import leaderboardRepository from '../repositories/leaderboard.repositories.js';
 import teamRepository from '../repositories/team.repositories.js';
 import codeGenerator from '../utils/codeGenerator.js';
 import quizTimerService from './quiztimer.service.js';
+import liveQuizStateService from './liveQuizState.service.js';
 import {
     IncorrectStateError,
     UserNotHostError,
@@ -129,8 +130,19 @@ class RoomService {
             throw new ValidationError('Quiz has no questions');
         }
 
+        const roomDetails = await roomRepository.getRoomWithUsers(room.id);
+        const teams = room.room_mode === 'TEAM' ? await teamRepository.getTeamsByRoomId(room.id) : [];
+        await liveQuizStateService.primeRoomLiveState({
+            roomId: room.id,
+            quizId: quiz.id,
+            roomMode: room.room_mode,
+            questions,
+            users: roomDetails.users,
+            teams
+        });
+
         await roomRepository.updateRoomState(room.id, 'LIVE');
-        await quizTimerService.registerQuizTimer(room.id, quiz.id, quiz.duration_seconds);
+        await quizTimerService.scheduleQuizEnd(room.id, quiz.id, quiz.duration_seconds);
 
         return {
             roomId: room.id,
@@ -178,39 +190,15 @@ class RoomService {
             throw new ValidationError('User must belong to a team in TEAM mode');
         }
 
-        const alreadyAnswered = room.room_mode === 'TEAM'
-            ? await submissionRepository.hasTeamAnsweredQuestion(effectiveTeamId, question.id)
-            : await submissionRepository.hasUserAnsweredQuestion(userId, question.id);
-
-        if (alreadyAnswered) {
-            throw new ValidationError('Answer already submitted');
-        }
-
-        const submission = await submissionRepository.submitAnswer(
-            userId,
-            effectiveTeamId,
-            activeQuiz.id,
-            question.id,
-            Number(selectedOption)
-        );
-
-        const isCorrect = Number(selectedOption) === question.correct_option;
-        if (isCorrect) {
-            if (room.room_mode === 'TEAM') {
-                await leaderboardRepository.updateTeamScore(effectiveTeamId, room.id, 1);
-            } else {
-                await leaderboardRepository.updateUserScore(userId, room.id, 1);
-            }
-        }
-
-        return {
-            submissionId: submission.id,
+        return liveQuizStateService.submitAnswer({
+            roomId: room.id,
             quizId: activeQuiz.id,
+            roomMode: room.room_mode,
+            userId,
+            teamId: effectiveTeamId,
             questionId: question.id,
-            selectedOption: Number(selectedOption),
-            correctOption: question.correct_option,
-            isCorrect
-        };
+            selectedOption: Number(selectedOption)
+        });
     }
 
     async endQuiz(roomId, userId) {
@@ -227,9 +215,10 @@ class RoomService {
 
         const quiz = await quizRepository.getQuizByRoomId(room.id);
         if (quiz) {
-            await quizTimerService.cancelQuizTimer(quiz.id);
+            await quizTimerService.cancelQuizEnd(room.id, quiz.id);
         }
 
+        await liveQuizStateService.clearRoomLiveState(room.id);
         await roomRepository.updateRoomState(room.id, 'ENDED');
 
         return {
@@ -268,6 +257,7 @@ class RoomService {
         }
 
         await leaderboardRepository.resetScoresByRoomId(room.id);
+        await liveQuizStateService.clearRoomLiveState(room.id);
         await roomRepository.updateRoomState(room.id, 'LOBBY');
 
         return {
@@ -298,6 +288,11 @@ class RoomService {
         }
 
         const room = await roomRepository.getRoomById(Number(roomId));
+        const liveLeaderboard = await liveQuizStateService.getLiveLeaderboard(room.id);
+        if (liveLeaderboard.length > 0) {
+            return liveLeaderboard;
+        }
+
         return room.room_mode === 'TEAM'
             ? leaderboardRepository.getTeamLeaderboard(room.id)
             : leaderboardRepository.getUserLeaderboard(room.id);

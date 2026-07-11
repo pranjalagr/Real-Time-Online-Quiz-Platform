@@ -4,6 +4,7 @@ dotenv.config();
 import app from "./app.js";
 import http from "http";
 import { initSockets } from "./socket/index.js";
+import { closeSocketRedisAdapter } from "./socket/redis.adapter.js";
 import db from "./utils/database.js";
 
 const PORT = process.env.PORT || 5000;
@@ -42,7 +43,7 @@ async function initialize() {
         // 2. Initialize WebSocket
         console.log("[2/3] Initializing WebSocket Server...");
         try {
-            io = initSockets(server);
+            io = await initSockets(server);
             console.log("      SUCCESS: WebSocket initialized");
         } catch (error) {
             console.error("      FAILED: WebSocket initialization error");
@@ -117,6 +118,7 @@ async function shutdown() {
         if (io) {
             console.log("[2/4] Closing WebSocket connections...");
             io.close();
+            await closeSocketRedisAdapter();
             console.log("      SUCCESS: WebSocket connections closed");
         } else {
             console.log("[2/4] WebSocket not initialized, skipping...");

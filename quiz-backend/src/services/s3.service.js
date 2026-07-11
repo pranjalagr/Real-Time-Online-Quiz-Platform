@@ -1,14 +1,14 @@
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import dotenv from 'dotenv';
-import { ValidationError } from '../../models/errors.js';
+import { ValidationError } from '../models/errors.js';
 
 dotenv.config();
 
-class QuizServices {
+class S3Service {
     constructor() {
         this.s3Client = new S3Client({
-            region:'ap-south-1',
+            region: 'ap-south-1',
             credentials: {
                 accessKeyId: process.env.AWS_ACCESS_KEY_ID,
                 secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
@@ -63,4 +63,4 @@ class QuizServices {
     }
 }
 
-export default new QuizServices();
+export default new S3Service();

@@ -1,10 +1,10 @@
-import aws from '../quizservices.js';
-import { addPdfProcessingJob, getJson, setJson } from '../../redis.js';
-import pubSubService from '../../pubsub.service.js';
-import quizRepository from '../../../repositories/quiz.repositories.js';
-import questionRepository from '../../../repositories/question.repositories.js';
-import roomRepository from '../../../repositories/room.repositories.js';
-import { ValidationError, NotFoundError, UserNotHostError, IncorrectStateError } from '../../../models/errors.js';
+import aws from './s3.service.js';
+import { addPdfProcessingJob, getJson, setJson } from './redis.js';
+import pubSubService from './pubsub.service.js';
+import quizRepository from '../repositories/quiz.repositories.js';
+import questionRepository from '../repositories/question.repositories.js';
+import roomRepository from '../repositories/room.repositories.js';
+import { ValidationError, NotFoundError, UserNotHostError, IncorrectStateError } from '../models/errors.js';
 
 class PDFQuizGenerator {
     uploadKey(quizId) {

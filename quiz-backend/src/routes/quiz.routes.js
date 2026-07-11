@@ -11,6 +11,7 @@ const router = express.Router();
  * @body { title: string, description: string, topic: string, timeLimit: number }
  */
 router.post('/', authMiddleware, quizController.createQuiz);
+router.get('/user/:userId/created', authMiddleware, quizController.getUserQuizzes);
 router.post('/pdf/upload', authMiddleware, quizController.createPdfUpload);
 router.post('/pdf/finalize', authMiddleware, quizController.finalizePdfQuiz);
 router.get('/pdf/jobs/:jobId', authMiddleware, quizController.getPdfJobStatus);
@@ -62,6 +63,4 @@ router.get('/:quizId/results', authMiddleware, quizController.getQuizResults);
  * @requires authentication
  * @param { userId: number }
  */
-router.get('/user/:userId/created', authMiddleware, quizController.getUserQuizzes);
-
 export default router;

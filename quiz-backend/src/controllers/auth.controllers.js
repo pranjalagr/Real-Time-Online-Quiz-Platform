@@ -1,4 +1,4 @@
-import authService from '../services/auth.services.js';
+import authService from '../services/auth.service.js';
 import { ValidationError } from '../models/errors.js';
 
 class AuthController {

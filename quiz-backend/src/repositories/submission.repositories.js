@@ -23,30 +23,6 @@ class SubmissionRepository {
         }
     }
 
-    async hasUserAnsweredQuestion(userId, questionId) {
-        try {
-            const result = await db.query(
-                'SELECT 1 FROM submissions WHERE user_id = $1 AND questions_id = $2',
-                [userId, questionId]
-            );
-            return result.rows.length > 0;
-        } catch (error) {
-            throw new DatabaseError(`Failed to check user submission: ${error.message}`, 'CHECK_SUBMISSION', error);
-        }
-    }
-
-    async hasTeamAnsweredQuestion(teamId, questionId) {
-        try {
-            const result = await db.query(
-                'SELECT 1 FROM submissions WHERE team_id = $1 AND questions_id = $2',
-                [teamId, questionId]
-            );
-            return result.rows.length > 0;
-        } catch (error) {
-            throw new DatabaseError(`Failed to check team submission: ${error.message}`, 'CHECK_SUBMISSION', error);
-        }
-    }
-
     async getSubmissionById(submissionId) {
         try {
             const result = await db.query(

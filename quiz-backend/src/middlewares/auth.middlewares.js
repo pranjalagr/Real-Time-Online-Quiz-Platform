@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import authService from '../services/auth.services.js';
+import authService from '../services/auth.service.js';
 import { UnauthorizedError, ValidationError } from '../models/errors.js';
 
 /**

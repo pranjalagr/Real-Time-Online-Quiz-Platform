@@ -4,6 +4,7 @@ import { api } from '../api/client.js';
 import Leaderboard from '../components/leaderboard.jsx';
 import Timer from '../components/timer.jsx';
 import { useAppState } from '../state/quizstate.js';
+import { emitSocket, getSocket } from '../socket/socketclient.js';
 
 function QuizHostPage() {
   const { roomId } = useParams();
@@ -36,14 +37,38 @@ function QuizHostPage() {
     return () => clearInterval(interval);
   }, [roomId, token]);
 
-  const endQuiz = async () => {
-    try {
-      await api.endRoomQuiz(token, roomId);
-      navigate(`/rooms/${roomId}/leaderboard`);
-    } catch (endError) {
-      setError(endError.message);
+  useEffect(() => {
+    const syncRoom = async () => {
+      try {
+        await emitSocket('SYNC_ROOM', { roomId: Number(roomId) });
+      } catch {
+        // We retry indirectly on the next room refresh if the socket is not ready yet.
+      }
+    };
+
+    syncRoom();
+  }, [roomId]);
+
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) {
+      return undefined;
     }
-  };
+
+    const handleQuizEnded = (payload) => {
+      if (Number(payload?.roomId) !== Number(roomId)) {
+        return;
+      }
+
+      navigate(`/rooms/${roomId}/leaderboard`);
+    };
+
+    socket.on('QUIZ_ENDED', handleQuizEnded);
+
+    return () => {
+      socket.off('QUIZ_ENDED', handleQuizEnded);
+    };
+  }, [navigate, roomId]);
 
   return (
     <main className="page-shell">
@@ -52,7 +77,7 @@ function QuizHostPage() {
           <div>
             <p className="eyebrow">Host Console</p>
             <h1>Live Room {room?.room_code}</h1>
-            <p className="muted-copy">Monitor the room and end the quiz when the round is complete.</p>
+            <p className="muted-copy">Monitor the room while the round runs and wait for the timer worker to close it out.</p>
           </div>
           <Timer seconds={secondsRemaining} />
         </div>
@@ -85,9 +110,6 @@ function QuizHostPage() {
               </div>
             </dl>
 
-            <button className="primary-button" type="button" onClick={endQuiz}>
-              End Quiz
-            </button>
           </section>
 
           <Leaderboard rows={leaderboard} title="Live Leaderboard" />

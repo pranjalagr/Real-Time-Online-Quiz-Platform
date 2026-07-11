@@ -1,7 +1,7 @@
 import quizRepository from '../repositories/quiz.repositories.js';
 import questionRepository from '../repositories/question.repositories.js';
 import roomRepository from '../repositories/room.repositories.js';
-import pdfQuizGenerator from './quizservices/generators/pdfquiz.js';
+import pdfQuizGenerator from './pdfquiz.generator.js';
 import { ValidationError, NotFoundError, UserNotHostError, IncorrectStateError } from '../models/errors.js';
 
 class QuizService {

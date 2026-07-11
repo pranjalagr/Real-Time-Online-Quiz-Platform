@@ -4,6 +4,7 @@ import { api } from '../api/client.js';
 import QuestionCard from '../components/questioncard.jsx';
 import Timer from '../components/timer.jsx';
 import { useAppState } from '../state/quizstate.js';
+import { emitSocket, getSocket } from '../socket/socketclient.js';
 
 function QuizPage() {
   const { roomId } = useParams();
@@ -49,6 +50,39 @@ function QuizPage() {
   }, [roomId, token]);
 
   useEffect(() => {
+    const syncRoom = async () => {
+      try {
+        await emitSocket('SYNC_ROOM', { roomId: Number(roomId) });
+      } catch {
+        // Socket reconnects are handled elsewhere; this just primes the room join.
+      }
+    };
+
+    syncRoom();
+  }, [roomId]);
+
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) {
+      return undefined;
+    }
+
+    const handleQuizEnded = (payload) => {
+      if (Number(payload?.roomId) !== Number(roomId)) {
+        return;
+      }
+
+      navigate(`/rooms/${roomId}/leaderboard`);
+    };
+
+    socket.on('QUIZ_ENDED', handleQuizEnded);
+
+    return () => {
+      socket.off('QUIZ_ENDED', handleQuizEnded);
+    };
+  }, [navigate, roomId]);
+
+  useEffect(() => {
     if (!secondsRemaining) {
       return undefined;
     }
@@ -75,9 +109,11 @@ function QuizPage() {
     }
 
     try {
-      const submission = await api.submitAnswer(token, roomId, currentQuestion.id, {
+      const submission = await emitSocket('SUBMIT_ANSWER', {
+        roomId: Number(roomId),
+        questionId: Number(currentQuestion.id),
         selectedOption,
-        quizId: room.currentQuiz.id
+        quizId: Number(room.currentQuiz.id)
       });
 
       setResult(submission.data);

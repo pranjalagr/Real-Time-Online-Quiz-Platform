@@ -21,18 +21,34 @@ export function AppStateProvider({ children }) {
       disconnectSocket();
       return undefined;
     }
-
     const socket = connectSocket(token);
     const onConnect = () => setSocketStatus('online');
     const onDisconnect = () => setSocketStatus('offline');
-
+    const clearAuthState = () => {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      setToken('');
+      setUser(null);
+      disconnectSocket();
+      setSocketStatus('offline');
+    }
+    const onConnectError = (error) =>{
+      if(error?.message === 'Unauthorized') {
+        clearAuthState();
+      }
+      else{
+         setSocketStatus('offline');
+      }
+    }
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
+    socket.on('connect_error',onConnectError);
     setSocketStatus(socket.connected ? 'online' : 'connecting');
 
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
+      socket.off('connect_error', onConnectError);
     };
   }, [token]);
 

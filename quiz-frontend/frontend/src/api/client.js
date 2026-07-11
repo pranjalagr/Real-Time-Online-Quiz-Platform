@@ -37,8 +37,6 @@ export const api = {
   createRoom: (token, body) => request('/rooms/create', { method: 'POST', token, body }),
   joinRoom: (token, body) => request('/rooms/join', { method: 'POST', token, body }),
   getRoom: (token, roomId) => request(`/rooms/${roomId}`, { token }),
-  startRoomQuiz: (token, roomId) => request(`/rooms/${roomId}/start`, { method: 'POST', token }),
-  endRoomQuiz: (token, roomId) => request(`/rooms/${roomId}/end`, { method: 'POST', token }),
   getRoomLeaderboard: (token, roomId) => request(`/rooms/${roomId}/leaderboard`, { token }),
   createQuiz: (token, body) => request('/quizzes', { method: 'POST', token, body }),
   getQuiz: (token, quizId) => request(`/quizzes/${quizId}`, { token }),
@@ -46,12 +44,6 @@ export const api = {
   createPdfUpload: (token, body) => request('/quizzes/pdf/upload', { method: 'POST', token, body }),
   finalizePdfQuiz: (token, body) => request('/quizzes/pdf/finalize', { method: 'POST', token, body }),
   getPdfJobStatus: (token, jobId) => request(`/quizzes/pdf/jobs/${jobId}`, { token }),
-  submitAnswer: (token, roomId, questionId, body) =>
-    request(`/rooms/${roomId}/questions/${questionId}/submit`, {
-      method: 'POST',
-      token,
-      body
-    })
 };
 
 export async function uploadFileToPresignedUrl(uploadUrl, file) {

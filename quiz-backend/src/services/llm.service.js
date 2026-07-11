@@ -29,22 +29,21 @@ class LLMService {
         if (numQuestions < 1 || numQuestions > 50) {
             throw new ValidationError('Number of questions must be between 1 and 50');
         }
-
         const prompt = `You are a quiz generator. Generate exactly ${numQuestions} questions on the topic "${topic}". 
-Each question must have exactly 4 options and exactly one option must be correct. 
-The correct option must be represented by index (1, 2, 3, or 4). 
-Return only valid JSON. Do not include explanations. Do not include markdown. Do not include any text outside the JSON.
+        Each question must have exactly 4 options and exactly one option must be correct. 
+        The correct option must be represented by index (1, 2, 3, or 4). 
+        Return only valid JSON. Do not include explanations. Do not include markdown. Do not include any text outside the JSON.
 
-Here is the JSON format to follow strictly:
-{
-    "questions": [
+        Here is the JSON format to follow strictly:
         {
-            "question": "string",
-            "options": ["string", "string", "string", "string"],
-            "correctOption": number
-        }
-    ]
-}`;
+            "questions": [
+                {
+                    "question": "string",
+                    "options": ["string", "string", "string", "string"],
+                    "correctOption": number
+                }
+            ]
+        }`;
 
         try {
             const response = await fetch(this.apiUrl, {
@@ -79,7 +78,7 @@ Here is the JSON format to follow strictly:
             }
 
             // Validate and transform questions
-            const questions = parsed.questions.map((q, index) => {
+        const questions = parsed.questions.map((q, index) => {
                 if (!q.question || !q.options || !q.correctOption) {
                     throw new ValidationError(`Question ${index + 1} is missing required fields`);
                 }
@@ -95,11 +94,10 @@ Here is the JSON format to follow strictly:
                 return {
                     question: q.question,
                     options: q.options,
-                    correctOption: q.correctOption
-                };
-            });
-
-            return questions;
+                correctOption: q.correctOption
+            };
+        });
+        return questions;
         } catch (error) {
             if (error instanceof ValidationError) {
                 throw error;
@@ -132,7 +130,6 @@ Here is the JSON format to follow strictly:
         }
 
         const chunkText = chunks.join('\n\n');
-
         const generatePrompt = `You are a quiz generator. Based on the following text, generate exactly ${numQuestions} questions.
 Additional instruction: ${prompt}
 
@@ -172,7 +169,6 @@ Here is the JSON format to follow strictly:
             if (!response.ok) {
                 throw new Error(`LLM API returned status ${response.status}`);
             }
-
             const data = await response.json();
             
             if (!data.choices || !data.choices[0] || !data.choices[0].message) {
@@ -203,10 +199,9 @@ Here is the JSON format to follow strictly:
                 return {
                     question: q.question,
                     options: q.options,
-                    correctOption: q.correctOption
-                };
-            });
-
+                correctOption: q.correctOption
+            };
+        });
             return questions;
         } catch (error) {
             if (error instanceof ValidationError) {
