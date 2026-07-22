@@ -9,7 +9,7 @@ import { emitSocket, getSocket } from '../socket/socketclient.js';
 function QuizHostPage() {
   const { roomId } = useParams();
   const navigate = useNavigate();
-  const { token } = useAppState();
+  const { token, socketStatus } = useAppState();
   const [room, setRoom] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
   const [secondsRemaining, setSecondsRemaining] = useState(0);
@@ -21,7 +21,6 @@ function QuizHostPage() {
       const boardResponse = await api.getRoomLeaderboard(token, roomId);
       setRoom(roomResponse.data);
       setLeaderboard(boardResponse.data || []);
-      setSecondsRemaining(Number(roomResponse.data.currentQuiz?.duration_seconds || 0));
 
       if (roomResponse.data.state === 'ENDED') {
         navigate(`/rooms/${roomId}/leaderboard`);
@@ -38,6 +37,28 @@ function QuizHostPage() {
   }, [roomId, token]);
 
   useEffect(() => {
+    if (room?.state !== 'LIVE' || !room?.currentQuiz) {
+      setSecondsRemaining(0);
+      return undefined;
+    }
+
+    setSecondsRemaining(Number(room.currentQuiz.duration_seconds || 0));
+
+    const timer = setInterval(() => {
+      setSecondsRemaining((current) => {
+        const next = current <= 1 ? 0 : current - 1;
+        if (next === 0) {
+          clearInterval(timer);
+          setTimeout(() => navigate(`/rooms/${roomId}/leaderboard`), 0);
+        }
+        return next;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [navigate, room?.currentQuiz?.id, room?.currentQuiz?.duration_seconds, room?.state, roomId]);
+
+  useEffect(() => {
     const syncRoom = async () => {
       try {
         await emitSocket('SYNC_ROOM', { roomId: Number(roomId) });
@@ -51,7 +72,7 @@ function QuizHostPage() {
 
   useEffect(() => {
     const socket = getSocket();
-    if (!socket) {
+    if (!socket || socketStatus !== 'online') {
       return undefined;
     }
 
@@ -68,7 +89,7 @@ function QuizHostPage() {
     return () => {
       socket.off('QUIZ_ENDED', handleQuizEnded);
     };
-  }, [navigate, roomId]);
+  }, [navigate, roomId, socketStatus]);
 
   return (
     <main className="page-shell">

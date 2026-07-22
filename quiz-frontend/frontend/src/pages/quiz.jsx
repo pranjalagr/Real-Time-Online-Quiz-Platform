@@ -9,7 +9,7 @@ import { emitSocket, getSocket } from '../socket/socketclient.js';
 function QuizPage() {
   const { roomId } = useParams();
   const navigate = useNavigate();
-  const { token, user } = useAppState();
+  const { token, user, socketStatus } = useAppState();
   const [room, setRoom] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -63,7 +63,7 @@ function QuizPage() {
 
   useEffect(() => {
     const socket = getSocket();
-    if (!socket) {
+    if (!socket || socketStatus !== 'online') {
       return undefined;
     }
 
@@ -80,7 +80,7 @@ function QuizPage() {
     return () => {
       socket.off('QUIZ_ENDED', handleQuizEnded);
     };
-  }, [navigate, roomId]);
+  }, [navigate, roomId, socketStatus]);
 
   useEffect(() => {
     if (!secondsRemaining) {
@@ -89,16 +89,17 @@ function QuizPage() {
 
     const timer = setInterval(() => {
       setSecondsRemaining((current) => {
-        if (current <= 1) {
+        const next = current <= 1 ? 0 : current - 1;
+        if (next === 0) {
           clearInterval(timer);
-          return 0;
+          setTimeout(() => navigate(`/rooms/${roomId}/leaderboard`), 0);
         }
-        return current - 1;
+        return next;
       });
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [secondsRemaining > 0]);
+  }, [navigate, roomId, secondsRemaining]);
 
   const currentQuestion = questions[currentIndex];
   const isLastQuestion = currentIndex === questions.length - 1;
